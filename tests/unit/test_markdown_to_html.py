@@ -632,16 +632,14 @@ class TestStandaloneUrl:
     対応しているのはYouTube、Twitter、note.com記事のみです。
     """
 
-    def test_standalone_url_becomes_link(self) -> None:
-        """単独行のURLはリンクテキストになる（埋め込みにはならない）"""
+    def test_standalone_url_becomes_external_article_embed(self) -> None:
+        """単独行のURLは external-article 埋め込み（リンクカード）になる"""
         markdown = "https://example.com/article"
         result = markdown_to_html(markdown)
 
-        # 埋め込み属性がないことを確認
-        assert "data-embed-service" not in result
-        assert "embedded-service" not in result
-        # URLはテキストとして含まれる
-        assert "https://example.com/article" in result
+        # external-article の figure に変換される（noteエディタの貼り付けと同じ挙動）
+        assert 'embedded-service="external-article"' in result
+        assert 'data-src="https://example.com/article"' in result
 
     def test_url_in_text_preserved(self) -> None:
         """文中のURLは保持される"""
@@ -767,14 +765,23 @@ https://twitter.com/user/status/123"""
         assert 'href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"' in result
         assert 'embedded-service="youtube"' not in result
 
-    def test_unsupported_url_not_converted(self) -> None:
-        """サポートされていないURLは埋め込みに変換されない"""
+    def test_generic_url_converted_to_external_article(self) -> None:
+        """専用パターン外のURLも external-article 埋め込みに変換される"""
         markdown = "https://vimeo.com/123456"
         result = markdown_to_html(markdown)
 
-        assert "<figure" not in result
-        assert "embedded-service" not in result
-        assert "https://vimeo.com/123456" in result
+        assert "<figure" in result
+        assert 'embedded-service="external-article"' in result
+
+    def test_amp_in_query_string_not_double_escaped(self) -> None:
+        """クエリ文字列の & が二重エスケープされない（Amazonアフィリエイト等）"""
+        markdown = "https://www.amazon.co.jp/dp/4086315408?tag=abc-22&th=1"
+        result = markdown_to_html(markdown)
+
+        assert 'embedded-service="external-article"' in result
+        # data-src は1段エスケープ（&amp;）のみ。&amp;amp; は二重エスケープの兆候
+        assert "tag=abc-22&amp;th=1" in result
+        assert "&amp;amp;" not in result
 
 
 class TestHasEmbedUrl:
@@ -799,10 +806,14 @@ class TestHasEmbedUrl:
         assert has_embed_url("https://gist.github.com/defunkt/2059") is True
         assert has_embed_url("https://gist.github.com/user-name/abc123") is True
 
-    def test_unsupported_url_not_detected(self) -> None:
-        """サポートされていないURLは検出されない"""
-        assert has_embed_url("https://vimeo.com/123456") is False
-        assert has_embed_url("https://example.com") is False
+    def test_generic_url_detected_as_embed(self) -> None:
+        """専用パターン外の http(s) URL も埋め込み対象として検出される"""
+        assert has_embed_url("https://vimeo.com/123456") is True
+        assert has_embed_url("https://example.com") is True
+
+    def test_non_http_url_not_detected(self) -> None:
+        """http(s) 以外は検出されない"""
+        assert has_embed_url("ftp://example.com/file") is False
 
     def test_url_in_text_detected(self) -> None:
         """テキスト内の埋め込みURLも検出される"""

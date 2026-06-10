@@ -7,6 +7,7 @@ import re
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from html import unescape as html_unescape
 
 from markdown_it import MarkdownIt
 
@@ -268,7 +269,10 @@ def _convert_standalone_embed_urls(html: str) -> str:
     """
 
     def replace_embed_url(match: re.Match[str]) -> str:
-        url = match.group(2).strip()
+        # Unescape HTML entities first: markdown-it escapes '&' in query
+        # strings to '&amp;' (e.g. Amazon affiliate URLs), which would break
+        # pattern matching and double-escape in generate_embed_html.
+        url = html_unescape(match.group(2).strip())
 
         # Check if this URL is a supported embed URL
         service = get_embed_service(url)

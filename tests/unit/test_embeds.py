@@ -59,14 +59,26 @@ class TestGetEmbedService:
         assert get_embed_service("https://gist.github.com/user-name/abc123def") == "gist"
         assert get_embed_service("http://gist.github.com/user/gist123") == "gist"
 
-    def test_unsupported_url_returns_none(self) -> None:
-        """Test that unsupported URLs return None."""
+    def test_generic_http_url_falls_back_to_external_article(self) -> None:
+        """Generic http(s) URLs fall back to 'external-article' (link card)."""
         from note_mcp.api.embeds import get_embed_service
 
-        assert get_embed_service("https://example.com") is None
-        assert get_embed_service("https://google.com") is None
-        assert get_embed_service("https://vimeo.com/123456") is None
+        assert get_embed_service("https://example.com") == "external-article"
+        assert get_embed_service("https://google.com") == "external-article"
+        assert get_embed_service("https://vimeo.com/123456") == "external-article"
+        # Query strings (e.g. Amazon affiliate URLs) are accepted
+        assert (
+            get_embed_service("https://www.amazon.co.jp/dp/4086315408?tag=abc-22&th=1")
+            == "external-article"
+        )
+
+    def test_non_http_url_returns_none(self) -> None:
+        """Non-http(s) strings still return None."""
+        from note_mcp.api.embeds import get_embed_service
+
         assert get_embed_service("not a url") is None
+        assert get_embed_service("ftp://example.com/file") is None
+        assert get_embed_service("mailto:user@example.com") is None
 
 
 class TestIsEmbedUrl:
@@ -100,11 +112,15 @@ class TestIsEmbedUrl:
         assert is_embed_url("https://gist.github.com/user-name/abc123") is True
 
     def test_unsupported_urls_are_not_embed_urls(self) -> None:
-        """Test that unsupported URLs are not recognized as embed URLs."""
+        """Non-http(s) strings are not recognized as embed URLs.
+
+        Generic http(s) URLs ARE embed URLs since the external-article
+        fallback (they become link cards, like in note.com's editor).
+        """
         from note_mcp.api.embeds import is_embed_url
 
-        assert is_embed_url("https://example.com") is False
-        assert is_embed_url("https://google.com") is False
+        assert is_embed_url("https://example.com") is True
+        assert is_embed_url("https://google.com") is True
         assert is_embed_url("not a url") is False
 
 
@@ -223,12 +239,20 @@ class TestGenerateEmbedHtml:
         assert "&amp;" in html or "feature=share" in html
         assert '"<script>' not in html  # Should be escaped
 
+    def test_generic_url_uses_external_article(self) -> None:
+        """Generic http(s) URLs generate external-article embeds (fallback)."""
+        from note_mcp.api.embeds import generate_embed_html
+
+        html = generate_embed_html("https://example.com")
+        assert 'embedded-service="external-article"' in html
+        assert 'data-src="https://example.com"' in html
+
     def test_unsupported_url_raises_error(self) -> None:
-        """Test that unsupported URL raises ValueError."""
+        """Test that non-http(s) URL raises ValueError."""
         from note_mcp.api.embeds import generate_embed_html
 
         with pytest.raises(ValueError, match="Unsupported embed URL"):
-            generate_embed_html("https://example.com")
+            generate_embed_html("ftp://example.com/file")
 
     def test_embed_key_parameter(self) -> None:
         """Test that embed_key parameter is used when provided."""
@@ -561,7 +585,7 @@ class TestFetchEmbedKey:
         )
 
         with pytest.raises(ValueError, match="Unsupported embed URL"):
-            await fetch_embed_key(session, "https://example.com", "n1234567890ab")
+            await fetch_embed_key(session, "ftp://example.com/file", "n1234567890ab")
 
     @pytest.mark.asyncio
     async def test_fetch_embed_key_api_error(self) -> None:
@@ -867,9 +891,12 @@ class TestResolveEmbedKeys:
             # Should NOT raise - error is logged and processing continues
             result = await resolve_embed_keys(session, html_body, "n1234567890ab")
 
-            # First embed keeps original key (failed), second is replaced (succeeded)
-            assert 'embedded-content-key="embrandom1"' in result  # unchanged
-            assert 'embedded-content-key="embserverkey2"' in result  # replaced
+            # First embed (failed) degrades to a visible link paragraph;
+            # an unregistered placeholder key would render as nothing.
+            assert 'embedded-content-key="embrandom1"' not in result
+            assert '<a href="https://note.com/user/n/nfailarticle">' in result
+            # Second embed (succeeded) gets the server-registered key
+            assert 'embedded-content-key="embserverkey2"' in result
             assert mock_fetch.call_count == 2
 
     @pytest.mark.asyncio
@@ -1001,11 +1028,11 @@ class TestGenerateEmbedHtmlWithKey:
         assert f'embedded-content-key="{embed_key}"' in html
 
     def test_unsupported_url_raises_error(self) -> None:
-        """Test that unsupported URL raises ValueError."""
+        """Test that non-http(s) URL raises ValueError."""
         from note_mcp.api.embeds import generate_embed_html_with_key
 
         with pytest.raises(ValueError, match="Unsupported embed URL"):
-            generate_embed_html_with_key("https://example.com", "emb123")
+            generate_embed_html_with_key("ftp://example.com/file", "emb123")
 
     def test_url_escaping(self) -> None:
         """Test that special characters in URL are properly escaped."""

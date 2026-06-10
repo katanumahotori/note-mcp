@@ -94,6 +94,14 @@ GOOGLE_SLIDES_PATTERN = re.compile(
 # Example: https://speakerdeck.com/tomohisa/introducing-decider-pattern-with-event-sourcing (Issue #223)
 SPEAKERDECK_PATTERN = re.compile(r"^https?://speakerdeck\.com/[\w-]+/[\w-]+$")
 
+# Generic external URL fallback: any other http(s) URL that appears alone on a
+# line is embedded as an 'external-article' card via the same
+# /v2/embed_by_external_api endpoint already used for Zenn.dev / Qiita /
+# connpass. This matches note.com's own editor behavior, where pasting any URL
+# on its own line creates a link card. Specific patterns below take precedence
+# (checked first in get_embed_service).
+GENERIC_EXTERNAL_PATTERN = re.compile(r"^https?://\S+$")
+
 # Data-driven pattern to service mapping (Issue #235: DRY principle)
 # Note: GIST_PATTERN and GITHUB_REPO_PATTERN are mutually exclusive by design
 # (GIST_PATTERN matches gist.github.com, GITHUB_REPO_PATTERN matches github.com only).
@@ -123,10 +131,16 @@ def get_embed_service(url: str) -> str | None:
     Returns:
         Service type ('youtube', 'twitter', 'note', 'gist', 'githubRepository',
         'googlepresentation', 'speakerdeck', 'oembed', 'external-article') or None if unsupported.
+        Any http(s) URL that matches no specific pattern falls back to
+        'external-article' (generic link card). Non-http(s) strings return None.
     """
     for pattern, service in EMBED_PATTERNS:
         if pattern.match(url):
             return service
+    # Fallback: treat any other standalone http(s) URL as an external-article
+    # card, matching note.com's editor behavior on paste.
+    if GENERIC_EXTERNAL_PATTERN.match(url):
+        return "external-article"
     return None
 
 
@@ -470,6 +484,15 @@ async def resolve_embed_keys(
         except NoteAPIError as e:
             # Log warning and continue processing other embeds
             logger.warning("Embed key fetch failed for %s: %s", url, e.message)
-            # Original placeholder key is preserved
+            # Degrade the figure to a plain link paragraph. A figure left with
+            # an unregistered placeholder key is not rendered by note.com's
+            # frontend at all (Issue #116), which would silently drop the URL
+            # from the article. A visible link is the safer fallback.
+            element_id = str(uuid.uuid4())
+            link_html = (
+                f'<p name="{element_id}" id="{element_id}">'
+                f'<a href="{data_src}">{data_src}</a></p>'
+            )
+            result = result.replace(match.group(0), link_html)
 
     return result
