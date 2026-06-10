@@ -864,16 +864,19 @@ async def publish_article(
             # Fetch article title (required for both draft_save and PUT)
             article_response = await client.get(f"/v3/notes/{article_id}")
             article_data = article_response.get("data", {})
-            # For drafts, title is in note_draft.name; for published, it's in name
-            article_title = article_data.get("name", "")
-            if not article_title:
-                note_draft = article_data.get("note_draft")
-                if isinstance(note_draft, dict):
-                    article_title = note_draft.get("name", "")
-            # For drafts, prefer note_draft.body which has full HTML including headings
-            # data.body may be a stripped/sanitized version
+            # Prefer note_draft.name over data.name — mirroring the body logic
+            # below. For published articles with pending draft edits (saved via
+            # update_article), the new title lives in note_draft.name while
+            # data.name still holds the stale published title. Reading
+            # data.name first would silently revert title changes on publish.
             # Use `or ""` to handle None values (key exists but value is None)
             note_draft = article_data.get("note_draft")
+            if isinstance(note_draft, dict) and note_draft.get("name"):
+                article_title = note_draft.get("name") or ""
+            else:
+                article_title = article_data.get("name", "")
+            # For drafts, prefer note_draft.body which has full HTML including headings
+            # data.body may be a stripped/sanitized version
             if isinstance(note_draft, dict) and note_draft.get("body"):
                 article_body = note_draft.get("body") or ""
             else:
