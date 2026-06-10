@@ -469,6 +469,71 @@ class TestPublishArticle:
             assert article.url == "https://note.com/testuser/n/n1234567890ab"
 
     @pytest.mark.asyncio
+    async def test_publish_uses_draft_title_for_pending_edits(self) -> None:
+        """Publishing a published article with pending draft edits must use note_draft.name.
+
+        Regression test: update_article() saves a new title into note_draft.name
+        (via draft_save), while data.name still holds the stale published title.
+        publish_article() must prefer note_draft.name — otherwise the title
+        change is silently reverted on publish (while the body is updated,
+        because the body logic already prefers note_draft.body).
+        """
+        session = create_mock_session()
+
+        # Published article with a pending draft edit: data.name is stale,
+        # note_draft holds the updated title and body.
+        mock_get_response: dict[str, Any] = {
+            "data": {
+                "id": 123456,
+                "key": "n1234567890ab",
+                "name": "Old Published Title",
+                "body": "<p>old body</p>",
+                "status": "published",
+                "note_draft": {
+                    "name": "New Draft Title",
+                    "body": "<p>new body</p>",
+                },
+            }
+        }
+
+        mock_put_response: dict[str, Any] = {"data": {"result": True}}
+
+        mock_published_article = Article(
+            id="123456",
+            key="n1234567890ab",
+            title="New Draft Title",
+            body="new body",
+            status=ArticleStatus.PUBLISHED,
+            url="https://note.com/testuser/n/n1234567890ab",
+        )
+
+        with (
+            patch("note_mcp.api.articles.NoteAPIClient") as mock_client_class,
+            patch("note_mcp.api.articles._resolve_numeric_note_id") as mock_resolve,
+            patch(
+                "note_mcp.api.articles.get_article_via_api",
+                new_callable=AsyncMock,
+                return_value=mock_published_article,
+            ),
+        ):
+            mock_client = AsyncMock()
+            mock_client_class.return_value = mock_client
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get = AsyncMock(return_value=mock_get_response)
+            mock_client.put = AsyncMock(return_value=mock_put_response)
+            mock_resolve.return_value = "123456"
+
+            await publish_article(session, article_id="n1234567890ab")
+
+            call_args = mock_client.put.call_args
+            assert call_args is not None
+            put_payload = call_args[1]["json"]
+            # Title and body must both come from note_draft (the pending edit)
+            assert put_payload["name"] == "New Draft Title"
+            assert put_payload["free_body"] == "<p>new body</p>"
+
+    @pytest.mark.asyncio
     async def test_publish_new_article(self) -> None:
         """Test publishing a new article directly."""
         session = create_mock_session()
