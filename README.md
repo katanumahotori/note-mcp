@@ -4,6 +4,40 @@ note.com記事管理用MCPサーバー。AIアシスタント（Claude Code, Cla
 
 ⚠️ **注意**: このプロジェクトはnote.comの非公式APIを使用しています。詳細は[DISCLAIMER.md](DISCLAIMER.md)を参照してください。
 
+## このフォークについて
+
+これは [drillan/note-mcp](https://github.com/drillan/note-mcp) のフォーク（片沼ほとりの作業用）。作業の規律は [AGENTS.md](AGENTS.md)。
+remote は上流が `origin`、片沼さんのフォークが `fork`、作業ブランチは `local/combined`。
+
+### 上流に無い変更
+
+`git log origin/main..HEAD` で確認できる。現在2件。
+
+| 変更 | 内容 |
+|---|---|
+| `fix: publish_article reverts title changes saved via update_article` | `update_article` で保存したタイトルが `note_publish_article` で元に戻る問題の修正 |
+| `feat: embed any standalone http(s) URL as an external-article card` | 単独行の http(s) URL を、外部記事カードとして埋め込む |
+
+触っているのは `src/note_mcp/api/articles.py`・`src/note_mcp/api/embeds.py`・`src/note_mcp/utils/markdown_to_html.py` と、対応するテストだけ。
+
+上流の `CLAUDE.md`（開発規約・note.com の記法メモ）は [AGENTS.md](AGENTS.md) に置き換えた。原文は `git show origin/main:CLAUDE.md` で読める。
+
+### どこから起動されるか
+
+どちらも stdio でこのフォルダを直接指している。パッケージとしてインストールした版ではない。
+
+| クライアント | 設定ファイル | 起動 |
+|---|---|---|
+| Claude Code | `~/.claude.json` の `mcpServers.note-mcp` | `uv run --directory C:/Users/katan/dev/note-mcp python -m note_mcp` |
+| Codex | `~/.codex/config.toml` の `[mcp_servers.note-mcp]` | 同じ引数。ただし `uv.exe` を別の絶対パスで指定し、`PYTHONUTF8=1` を渡す（実値はその設定ファイルを見る） |
+
+**コードを変えたらクライアントを再起動しないと反映されない。**
+
+### 触ってよい範囲
+
+上流へ戻す気のない改造を増やさない。差分が増えるほど上流の更新を取り込めなくなる。
+直す前に、同じ修正が上流に入っていないかを `git log origin/main` と上流の issue で確認する。
+
 ## Features
 
 - 🔐 **ブラウザ認証**: Playwrightでnote.comにログインし、セッションを安全に保存
